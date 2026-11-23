@@ -184,6 +184,11 @@ Supported (within the tested subset):
 - the fixed 27-program corpus in `tests/validation27/programs/` and the G1–G4
   sources in `examples/g1_g4/sources/`.
 
+When expanding a thread array, `compatibility_thread_array` preserves each
+matched `sem_post` → `sem_wait` dependency in both the structural and scheduling
+views. If either endpoint maps to multiple worker instances, the rule rejects
+the input because it cannot identify a unique pair.
+
 Not supported or explicitly rejected:
 
 - dynamic mutex initialization, mutex aliases, function-pointer calls, and

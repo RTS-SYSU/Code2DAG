@@ -167,6 +167,10 @@ G4 结构示例使用的 `composition_c2c` 规则：
 - `tests/validation27/programs/` 的固定 27 程序语料，以及
   `examples/g1_g4/sources/` 的 G1–G4 源码。
 
+展开线程数组时，`compatibility_thread_array` 在结构图和调度图中都保留已配对的
+`sem_post` → `sem_wait` 依赖。若任一端点对应多个工作线程实例，无法唯一确定配对，
+该规则会拒绝此输入。
+
 不支持或显式拒绝：
 
 - 动态 mutex 初始化、mutex 别名、函数指针调用、`trylock` / wrapper 锁；
