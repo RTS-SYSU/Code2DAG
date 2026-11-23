@@ -21,6 +21,7 @@ import copy
 import hashlib
 import re
 from collections import OrderedDict
+from itertools import chain
 from typing import Dict, List, Optional, Tuple
 
 from ..core.func_ranges import _strip_comments_and_strings
@@ -308,16 +309,17 @@ def build_thread_array_views(
     worker_id_set = {str(row["seg_id"]) for row in worker_rows}
     final_rows: List[Dict] = [copy.deepcopy(row) for row in main_rows]
 
-    base_worker_edges = [
-        edge
-        for edge in dag.get("edges", [])
-        if str(edge.get("src")) in worker_id_set and str(edge.get("dst")) in worker_id_set
-    ]
-    base_main_edges = [
-        edge
-        for edge in dag.get("edges", [])
-        if str(edge.get("src")) in main_id_set and str(edge.get("dst")) in main_id_set
-    ]
+    base_main_edges = []
+    base_worker_edges = []
+    semaphore_edges = []
+    for edge in dag.get("edges", []):
+        src, dst = str(edge["src"]), str(edge["dst"])
+        if src in main_id_set and dst in main_id_set:
+            base_main_edges.append(edge)
+        elif edge.get("kind") == "sem_dep":
+            semaphore_edges.append(edge)
+        elif src in worker_id_set and dst in worker_id_set:
+            base_worker_edges.append(edge)
 
     thread_instances: Dict[str, Dict] = {}
     create_edges: List[Dict] = []
@@ -387,9 +389,27 @@ def build_thread_array_views(
             "thread_handle": f"{info['array_name']}[{iteration}]",
         }
 
+    # A semaphore token orders one matched post/wait pair. Expanding a
+    # worker must not turn that pair into an edge to or from every clone.
+    projected_semaphore_edges = []
+    for edge in semaphore_edges:
+        sources = original_to_execution.get(str(edge["src"]), [])
+        destinations = original_to_execution.get(str(edge["dst"]), [])
+        if len(sources) != 1 or len(destinations) != 1:
+            raise ValueError(
+                f"thread-array semaphore dependency {edge['src']} -> {edge['dst']} "
+                f"requires one instance per endpoint; "
+                f"found {len(sources)} and {len(destinations)}"
+            )
+        projected_semaphore_edges.append(
+            dict(edge, src=sources[0], dst=destinations[0])
+        )
+
     edges: List[Dict] = []
     seen_edges = set()
-    for edge in base_main_edges + create_edges + join_edges + worker_edges:
+    for edge in chain(
+        base_main_edges, create_edges, join_edges, worker_edges, projected_semaphore_edges
+    ):
         key = (str(edge["src"]), str(edge["dst"]), str(edge.get("kind")))
         if key in seen_edges:
             continue

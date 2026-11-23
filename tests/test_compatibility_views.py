@@ -180,6 +180,31 @@ int main(void) {
 """
 
 
+def thread_array_with_semaphore(count, worker_ops, main_ops):
+    return f"""\
+#include <pthread.h>
+#include <semaphore.h>
+#define N {count}
+static sem_t ready;
+
+void *worker(void *arg) {{
+    {worker_ops}
+    return NULL;
+}}
+
+int main(void) {{
+    pthread_t threads[N];
+    sem_init(&ready, 0, 0);
+    for (int i = 0; i < N; i++)
+        pthread_create(&threads[i], NULL, worker, NULL);
+    {main_ops}
+    for (int i = 0; i < N; i++)
+        pthread_join(threads[i], NULL);
+    return 0;
+}}
+"""
+
+
 class CompatibilityViewTests(unittest.TestCase):
     def setUp(self):
         self.helper = c1.CompositionC1Tests()
@@ -229,6 +254,38 @@ class CompatibilityViewTests(unittest.TestCase):
         for instance in es["mappings"]["thread_instances"].values():
             self.assertEqual("SEG:main#001@16-19", instance["create_segment"])
             self.assertEqual("SEG:main#004@24-25", instance["join_segment"])
+
+    def test_thread_array_preserves_unique_semaphore_endpoints(self):
+        post = "sem_post(&ready);"
+        wait = "sem_wait(&ready);"
+        cases = [(wait, post, "main", "worker"), (post, wait, "worker", "main")]
+        for worker_ops, main_ops, post_owner, wait_owner in cases:
+            with self.subTest(worker_ops=worker_ops):
+                source = thread_array_with_semaphore(1, worker_ops, main_ops)
+                result, ss, sd, es, ed = self._run(source, "array_semaphore")
+                self.assertEqual("compatibility_thread_array", result["rule_name"])
+                post_key = f"SRC:{post_owner}:line:{c1.line(source, post)}"
+                wait_key = f"SRC:{wait_owner}:line:{c1.line(source, wait)}"
+                for segments, dag in [(ss, sd), (es, ed)]:
+                    self._assert_closed(segments, dag, segments["view"])
+                    positions = segments["mappings"]["source_position_to_execution_segments"]
+                    (post_node,) = positions[post_key]
+                    (wait_node,) = positions[wait_key]
+                    actual = [
+                        (e["src"], e["dst"])
+                        for e in dag["edges"] if e["kind"] == "sem_dep"
+                    ]
+                    self.assertEqual([(post_node, wait_node)], actual)
+
+    def test_thread_array_rejects_ambiguous_semaphore_instances(self):
+        post = "sem_post(&ready);"
+        wait = "sem_wait(&ready);"
+        pairs = [(wait, post), (post, wait), (post + "\n    " + wait, "")]
+        for worker_ops, main_ops in pairs:
+            with self.subTest(worker_ops=worker_ops):
+                source = thread_array_with_semaphore(2, worker_ops, main_ops)
+                with self.assertRaisesRegex(ValueError, "one instance per endpoint"):
+                    self._run(source, "array_semaphore")
 
     def test_helper_mutex_injects_call_and_join_tail(self):
         result, ss, sd, es, ed = self._run(HELPER_MUTEX, "compat_helper")
