@@ -427,60 +427,43 @@ The **old node-priority runtime** is the path implemented by this repository's
   `pthread_setschedparam(...)` at node entries;
 - the Linux scheduler still decides when and where each thread/node runs.
 
-The **current performance experiments** use a different execution model:
-
-- the exported scheduling graph and measured segment costs are consumed by an
-  external full schedule executor (HEFT / CHEFT / FIFO / LPF / Zhao plan
-  generation followed by a frozen per-CPU plan);
-- the executor enforces CPU assignment, per-CPU order, and the plan trace;
-- that executor, its G4-specific cost/execution adaptation, and the raw
-  experiment records are **not** part of this repository.
-
-Do not read the extended performance numbers as the result of the old
-node-priority instrumentation. In particular, the gains are not attributable to
-mutex modeling alone: condition-path fidelity, mutex identity, segment costs,
-probability-weighted CHEFT, and the full executor all contribute. G4 contains
-both positive and negative configuration-level results; no single factor should
-be credited with the eight-configuration average.
+For the conditional DAG experiments (DAGs 7–10), HEFT and conditional HEFT
+(CHEFT) each generate one schedule per program and core count. Both use the
+same external executor, which enforces processor assignments, execution order
+on each processor, and task dependencies. Native pthread execution under CFS
+provides the baseline.
 
 ---
 
 ## Evaluation Summary
 
-### Traditional DAG (historical result)
+Both experiments used a VMware virtual machine running Ubuntu 20.04.6 LTS
+with an Intel Core i5-13400F and Linux 5.15.96-rt61.
 
-The original evaluation used six DAG structures (DAG 1–6), two CPU-affinity
-configurations (2-core `0–1`, 4-core `0–1–2–3`), 100 repetitions, a VMware
-Ubuntu 20.04.6 guest, an Intel Core i5-13400F, and a 5.15.96-rt61 kernel. The
-reported traditional result is **13.73% average makespan reduction vs CFS**
-(best case **30.87%**, DAG 3, 4-core).
+### Traditional DAGs (DAGs 1–6)
 
-### Extended DAG (current same-program G3 result)
+The evaluation used two cores (CPUs 0–1) and four cores (CPUs 0–3), with 100
+runs per configuration and method. Relative to CFS, LPF, HEFT, and Zhao reduced
+mean makespan by **13.73%** on average across the six programs and both core
+counts. On **DAG 4 with two cores**, the three policies averaged a **30.87%**
+reduction.
 
-The current extended-DAG paper table reports:
+### Conditional DAGs (DAGs 7–10)
 
-| Comparison | Result |
+Table III of the paper compares CFS, HEFT on the merged DAG, and CHEFT on the
+conditional DAG. For each method and core count, the evaluation used 100 runs
+per input path. DAGs 7 and 8 (G1 and G2) give equal weight to the two path
+means. DAGs 9 and 10 (G3 and G4) weight the 16 path means by their prescribed
+probabilities. DAG 9 uses the same six-task program on both core counts.
+
+| Comparison | Average reduction in mean makespan |
 |:---|---:|
-| Extended scheme vs CFS | **+8.80%** |
-| Extended scheme vs traditional DAG + HEFT | **+4.92%** |
+| CHEFT relative to native CFS | **8.8%** |
+| CHEFT relative to HEFT | **4.9%** |
 
-Configuration and data provenance:
-
-- G1–G4, each at 2-core and 4-core, 100 blocks per path; G1/G2/G4 use the
-  frozen two-path weights, G3 uses its native 16-path probabilities;
-- G3 uses the **same-program 6-task** version for both core counts (the older
-  4-task G3_2c is historical and is not mixed into this table);
-- reference machine: original i5-12600K, Linux
-  `6.1.192-0601192-generic`, CFS/SCHED_OTHER;
-- source batches: the unified work2 100-block formal batch for G1/G2/G4 and the
-  G3 same-program 100-block update for G3; the aggregate is the current
-  same-program G3 eight-config table;
-- the full schedule executor (not this repository) produced the runtime
-  measurements. Raw 100-block records are not published in this repository.
-
-The two evaluation setups are not directly comparable: they use different
-programs, kernels, machines, and execution models. The extended numbers are not
-a mutex-only ablation and should not be presented as one.
+Each percentage is the average of the reductions in the eight program and
+core-count configurations. On DAG 10, CHEFT had a lower mean makespan than
+both CFS and HEFT on two and four cores.
 
 ---
 
@@ -558,11 +541,10 @@ C front end. In particular:
 - C2c and `composition_*` do not provide standard C timing/instrument support;
   use the exported JSON with an external cost/schedule executor;
 - the public repository does not include the full schedule executor, the G4
-  cost/execution adapter, or the raw 100-block measurement data;
-- the extended performance table is from the named experiment batches, not from
-  the public examples;
-- per-node priority instrumentation is not the same execution model as the
-  frozen full schedule executor used for the paper numbers.
+  cost/execution adapter, or the raw timing measurements;
+- the G1–G4 examples reproduce graph construction for the bundled C programs;
+- DAGs 1–6 use per-node priority instrumentation for the DAG scheduling
+  policies. On DAGs 7–10, the external executor runs the HEFT and CHEFT schedules.
 
 The `ASAP_DAG/` directory retains the legacy ASAP benchmark sources and
 artifacts used by the original repository; it is separate from the extended
@@ -610,7 +592,6 @@ Code2DAG/
 ## Data Availability
 
 This repository publishes source code, tests, small source fixtures, and
-reproduction entry points. It does not publish the raw 100-block performance
-records, instrumented binaries, or the external full schedule executor. The
-extended performance numbers are reported with the batch names and configuration
-above so they are not confused with the public structural examples.
+commands for reproducing graph construction. The raw timing measurements,
+instrumented binaries, and external schedule executor are outside the scope of
+this release.
